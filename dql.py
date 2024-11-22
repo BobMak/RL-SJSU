@@ -11,12 +11,17 @@ def eval(qtable):
   env = gym.make(env_str, render_mode="human")
   obs, _ = env.reset()
   obs = th.tensor(obs, dtype=th.float32)
+  ep_len = 0
   for step in range(400):
     action = act(obs, qtable, eps=0)
     obs, reward, terminated, truncated, info = env.step(action)
+    ep_len+=1
     if terminated or truncated:
       obs, _ = env.reset()
+      ep_len = 0
+      print(f"ep finished, ep len {ep_len}")
     obs = th.tensor(obs, dtype=th.float32)
+  print("Eval done, ")
 
 def act(obs, qmodel, eps=0.2):
   if np.random.random(1) < eps:
@@ -42,9 +47,9 @@ def qmodel_forward(qmodel, obs, no_grad=False):
 
 def train(n_steps=100, eps=1.0, learning_rate=0.1):
   qmodel = th.nn.Sequential(
-    th.nn.Linear(state_space.shape[0] + action_space.n, 128), th.nn.ReLU(),
-    th.nn.Linear(128, 128), th.nn.ReLU(),
-    th.nn.Linear(128, 1)
+    th.nn.Linear(state_space.shape[0] + action_space.n, 512), th.nn.ReLU(),
+    th.nn.Linear(512, 512), th.nn.ReLU(),
+    th.nn.Linear(512, 1)
   )
   loss_fn = th.nn.MSELoss()
   optimizer = th.optim.Adam(qmodel.parameters(), lr=learning_rate)
@@ -55,11 +60,15 @@ def train(n_steps=100, eps=1.0, learning_rate=0.1):
   tot_reward = 0
   episode_rew = 0
   eps_list = np.linspace(eps, 0.01, n_steps)
+  ep_len = 0
   for step in range(n_steps):
     action = act(obs, qmodel, eps_list[step])
     new_obs, reward, terminated, truncated, info = env.step(action)
     # turn everything into tensors
-    reward = th.tensor(reward, dtype=th.float32)
+    if terminated:
+      reward = th.tensor(-1, dtype=th.float32)
+    else:
+      reward = th.zeros(1, dtype=th.float32)
     new_obs = th.tensor(new_obs, dtype=th.float32)
     # calculate target and predicted values
     q_target_value = reward + 0.99 * qmodel_forward(qmodel, new_obs, no_grad=True)
@@ -72,12 +81,14 @@ def train(n_steps=100, eps=1.0, learning_rate=0.1):
     optimizer.step()
     tot_reward += reward
     episode_rew += reward
+    ep_len+=1
     if terminated:
       new_obs, _ = env.reset()
       new_obs = th.tensor(new_obs, dtype=th.float32)
       episode_rew = 0
+      ep_len = 0
     if step % 100 == 0:
-      print(f"Step {step}: {loss.item()}, ep reward: {episode_rew}")
+      print(f"Step {step}: {loss.item()}, ep len: {ep_len}")
 
     obs = new_obs
   return qmodel
@@ -94,6 +105,5 @@ observations = [th.tensor(obs, dtype=th.float32) for obs in env.observation_spac
 qvalues = [qmodel_forward(qmodel, obs, no_grad=True) for obs in observations]
 x_axis_idx = 0
 y_axis_idx = 2
-plt.scatter([obs[x_axis_idx].item() for obs in observations], [obs[y_axis_idx].item() for obs in observations], c=[qvalue.item() for qvalue in qvalues])
-plt.show()
-eval(qtable)
+# plt.scatter([obs[x_axis_idx].item() for obs in observations], [obs[y_axis_idx].item() for obs in observations], c=[qvalue.item() for qvalue in qvalues])
+# plt.show()
